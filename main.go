@@ -29,6 +29,13 @@ type udpConn struct {
 	payloadType uint8
 }
 
+type pixelStreamingWSMessage struct {
+	Type        string `json:"type"`
+	Candidate   string `json:"candidate"`
+	Sdp         string `json:"sdp"`
+	PlayerCount int    `json:"count"`
+}
+
 // Allows compressing offer/answer to bypass terminal input limits.
 const compress = false
 
@@ -120,11 +127,70 @@ func readLoop(wsConn *websocket.Conn) {
 		messageType, message, err := wsConn.ReadMessage()
 		if err != nil {
 			log.Printf("Websocket read error message: %v", err)
-			break
+			continue
 		}
 		stringMessage := string(message)
 		toPrint := fmt.Sprintf("Received message, (type=%d): %s", messageType, stringMessage)
 		log.Printf(toPrint)
+
+		var objmap map[string]json.RawMessage
+		err = json.Unmarshal(message, &objmap)
+
+		if err != nil {
+			log.Printf("Error unmarshalling bytes from websocket message. Error: %s", err.Error())
+			continue
+		}
+
+		var pixelStreamingMessageType string
+		err = json.Unmarshal(objmap["type"], &pixelStreamingMessageType)
+
+		if err != nil {
+			log.Printf("Error unmarshaling type from pixel streaming message. Error: %s", err.Error())
+			continue
+		}
+
+		// Unmarshal bytes from websocket into a Golang object
+		// var unmarshalledMsg pixelStreamingWSMessage
+		// unmarshalError := json.Unmarshal([]byte(message), &unmarshalledMsg)
+		// if unmarshalError != nil {
+		// 	log.Printf("Error occured during unmarshaling. Error: %s", unmarshalError.Error())
+		// }
+
+		//webrtc.ICECandidate
+		//Candidate, err := ice.UnmarshalCandidate()
+		//webrtc.ICECandidate()
+
+		switch pixelStreamingMessageType {
+		case "playerCount":
+			var playerCount int
+			err = json.Unmarshal(objmap["count"], &playerCount)
+			if err != nil {
+				log.Printf("Error unmarshaling player count. Error: %s", err.Error())
+			}
+			log.Printf("Player count is: %d", playerCount)
+		case "config":
+			log.Println("Got config message, ToDO: react based on config that was passed.")
+		case "answer":
+			fmt.Println("Got an answer: ToDO: parse and set remote description on peer connection")
+			var sdp string
+			err = json.Unmarshal(objmap["sdp"], &sdp)
+			if err != nil {
+				log.Printf("Error unmarshaling sdp from answer. Error: %s", err.Error())
+			}
+
+			// https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L90
+		case "iceCandidate":
+			fmt.Println("Got ice candidate: ToDO: parse and set ice candidate")
+			// see: https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L82
+		default:
+			fmt.Println("Got message we do not specifically handle, type was: " + pixelStreamingMessageType)
+		}
+
+		//ice.UnmarshalCandidate()
+		//convert message to JSON, if possible
+		//ice.UnmarshalCandidate
+		//webrtc.ICECandidate
+
 	}
 }
 
