@@ -119,7 +119,7 @@ func createPeerConnection() (*webrtc.PeerConnection, error) {
 // then it should begin signalling the ice candidates it got from the Unreal Engine side.
 // This flow is based on:
 // https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L90
-func handleRemoteAnswer(message []byte, peerConnection *webrtc.PeerConnection) {
+func handleRemoteAnswer(message []byte, peerConnection *webrtc.PeerConnection, wsConn *websocket.Conn, pendingCandidates *[]*webrtc.ICECandidate) {
 	sdp := webrtc.SessionDescription{}
 	unmarshalError := json.Unmarshal([]byte(message), &sdp)
 
@@ -133,9 +133,12 @@ func handleRemoteAnswer(message []byte, peerConnection *webrtc.PeerConnection) {
 		log.Printf("Error occured setting remote session description. Error: %s", sdpErr.Error())
 		return
 	}
+	fmt.Println("Added session description from UE to Pion.")
 
-	//ToDo: signal remote ice candidates
-	println("ToDo: We need to signal remote ice candidates after we send our answer")
+	// User websocket to send our local ICE candidates to UE
+	for _, localIceCandidate := range *pendingCandidates {
+		sendLocalIceCandidate(wsConn, localIceCandidate)
+	}
 }
 
 // Pion has received an ice candidate from the remote Unreal Engine Pixel Streaming (through Cirrus).
@@ -159,7 +162,7 @@ func handleRemoteIceCandidate(message []byte, peerConnection *webrtc.PeerConnect
 }
 
 // Starts an infinite loop where we poll for new websocket messages and react to them.
-func startControlLoop(wsConn *websocket.Conn, peerConnection *webrtc.PeerConnection) {
+func startControlLoop(wsConn *websocket.Conn, peerConnection *webrtc.PeerConnection, pendingCandidates *[]*webrtc.ICECandidate) {
 	// Start loop here to read web socket messages
 	for {
 		messageType, message, err := wsConn.ReadMessage()
@@ -204,7 +207,7 @@ func startControlLoop(wsConn *websocket.Conn, peerConnection *webrtc.PeerConnect
 		case "config":
 			fmt.Println("Got config message, ToDO: react based on config that was passed.")
 		case "answer":
-			handleRemoteAnswer(message, peerConnection)
+			handleRemoteAnswer(message, peerConnection, wsConn, pendingCandidates)
 		case "iceCandidate":
 			candidateMsg := objmap["candidate"]
 			handleRemoteIceCandidate(candidateMsg, peerConnection)
@@ -243,8 +246,7 @@ func sendLocalIceCandidate(wsConn *websocket.Conn, localIceCandidate *webrtc.ICE
 
 	jsonStr := string(jsonPayload)
 	writeWSMessage(wsConn, jsonStr)
-	fmt.Println("Sending our local ice candidate to UE...")
-	fmt.Println(jsonStr)
+	fmt.Println(fmt.Sprintf("Sending our local ice candidate to UE...%s", jsonStr))
 }
 
 func main() {
@@ -268,6 +270,7 @@ func main() {
 	pendingCandidates := make([]*webrtc.ICECandidate, 0)
 
 	// Setup a callback to capture our local ice candidates when they are ready
+	// Note: can happen at random times so might be before or after we have sent offer.
 	peerConnection.OnICECandidate(func(localIceCandidate *webrtc.ICECandidate) {
 		if localIceCandidate == nil {
 			return
@@ -279,13 +282,14 @@ func main() {
 		desc := peerConnection.RemoteDescription()
 		if desc == nil {
 			pendingCandidates = append(pendingCandidates, localIceCandidate)
+			fmt.Println("Added local ICE candidate that we will send off later...")
 		} else {
 			sendLocalIceCandidate(wsConn, localIceCandidate)
 		}
 	})
 
 	sendOffer(wsConn, peerConnection)
-	startControlLoop(wsConn, peerConnection)
+	startControlLoop(wsConn, peerConnection, &pendingCandidates)
 
 	// // Prepare the configuration
 	// config := webrtc.Configuration{
