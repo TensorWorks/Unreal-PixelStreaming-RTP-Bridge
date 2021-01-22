@@ -29,13 +29,6 @@ type udpConn struct {
 	payloadType uint8
 }
 
-type pixelStreamingWSMessage struct {
-	Type        string `json:"type"`
-	Candidate   string `json:"candidate"`
-	Sdp         string `json:"sdp"`
-	PlayerCount int    `json:"count"`
-}
-
 // Allows compressing offer/answer to bypass terminal input limits.
 const compress = false
 
@@ -69,14 +62,8 @@ func createPeerConnection() (*webrtc.PeerConnection, error) {
 	// Create a MediaEngine object to configure the supported codec
 	m := webrtc.MediaEngine{}
 
-	// thing to try pion
-	// could try trickle ice: a=ice-options:trickle
-	// ours is missing a=rtcp:9 IN IP4 0.0.0.0
-	// https://github.com/pion/webrtc/issues/925
-	// https://github.com/pion/webrtc/issues/717
-
 	// // Setup the codecs you want to use.
-	// // We'll use a VP8 and Opus but you can also define your own
+	// // We'll use a H264 and Opus but you can also define your own
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "video/h264", ClockRate: 90000, Channels: 0, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=10000;x-google-max-bitrate=20000", RTCPFeedback: nil},
 		PayloadType:        102,
@@ -121,7 +108,53 @@ func createPeerConnection() (*webrtc.PeerConnection, error) {
 	return peerConnection, err
 }
 
-func readLoop(wsConn *websocket.Conn) {
+// Pion has recieved an "answer" from the remote Unreal Engine Pixel Streaming (through Cirrus)
+// Pion will now set its remote session description that it got from the answer.
+// Once Pion has its own local session description and the remote session description set
+// then it should begin signalling the ice candidates it got from the Unreal Engine side.
+// This flow is based on:
+// https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L90
+func handleRemoteAnswer(message []byte, peerConnection *webrtc.PeerConnection) {
+	sdp := webrtc.SessionDescription{}
+	unmarshalError := json.Unmarshal([]byte(message), &sdp)
+
+	if unmarshalError != nil {
+		log.Printf("Error occured during unmarshaling sdp. Error: %s", unmarshalError.Error())
+		return
+	}
+
+	// Set remote session description we got from UE pixel streaming
+	if sdpErr := peerConnection.SetRemoteDescription(sdp); sdpErr != nil {
+		log.Printf("Error occured setting remote session description. Error: %s", sdpErr.Error())
+		return
+	}
+
+	//ToDo: signal remote ice candidates
+	println("ToDo: We need to signal remote ice candidates")
+}
+
+// Pion has received an ice candidate from the remote Unreal Engine Pixel Streaming (through Cirrus).
+// We parse this message and add that ice candidate to our peer connection.
+// Flow based on: https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L82
+func handleRemoteIceCandidate(message []byte, peerConnection *webrtc.PeerConnection) {
+	var iceCandidateInit webrtc.ICECandidateInit
+	jsonErr := json.Unmarshal(message, &iceCandidateInit)
+	if jsonErr != nil {
+		log.Printf("Error unmarshaling ice candidate. Error: %s", jsonErr.Error())
+		return
+	}
+
+	// The actual adding of the remote ice candidate happens here.
+	if candidateErr := peerConnection.AddICECandidate(iceCandidateInit); candidateErr != nil {
+		log.Printf("Error adding remote ice candidate. Error: %s", candidateErr.Error())
+		return
+	}
+
+	fmt.Println(fmt.Sprintf("Added remote ice candidate from UE - %s", iceCandidateInit.Candidate))
+}
+
+// Starts an infinite loop where we poll for new websocket messages and react to them.
+func startControlLoop(wsConn *websocket.Conn, peerConnection *webrtc.PeerConnection) {
 	// Start loop here to read web socket messages
 	for {
 		messageType, message, err := wsConn.ReadMessage()
@@ -130,9 +163,13 @@ func readLoop(wsConn *websocket.Conn) {
 			continue
 		}
 		stringMessage := string(message)
-		toPrint := fmt.Sprintf("Received message, (type=%d): %s", messageType, stringMessage)
-		log.Printf(toPrint)
 
+		// We print the recieved messages in a different colour so they are easier to distinguish.
+		colorGreen := "\033[32m"
+		colorReset := "\033[0m"
+		fmt.Println(string(colorGreen), fmt.Sprintf("Received message, (type=%d): %s", messageType, stringMessage), string(colorReset))
+
+		// Transform the raw bytes into a map of string: []byte pairs, we can unmarshall each key/value as needed.
 		var objmap map[string]json.RawMessage
 		err = json.Unmarshal(message, &objmap)
 
@@ -141,6 +178,7 @@ func readLoop(wsConn *websocket.Conn) {
 			continue
 		}
 
+		// Get the type of message we received from the Unreal Engine side
 		var pixelStreamingMessageType string
 		err = json.Unmarshal(objmap["type"], &pixelStreamingMessageType)
 
@@ -149,17 +187,7 @@ func readLoop(wsConn *websocket.Conn) {
 			continue
 		}
 
-		// Unmarshal bytes from websocket into a Golang object
-		// var unmarshalledMsg pixelStreamingWSMessage
-		// unmarshalError := json.Unmarshal([]byte(message), &unmarshalledMsg)
-		// if unmarshalError != nil {
-		// 	log.Printf("Error occured during unmarshaling. Error: %s", unmarshalError.Error())
-		// }
-
-		//webrtc.ICECandidate
-		//Candidate, err := ice.UnmarshalCandidate()
-		//webrtc.ICECandidate()
-
+		// Based on the "type" of message we received, we react accordingly.
 		switch pixelStreamingMessageType {
 		case "playerCount":
 			var playerCount int
@@ -167,29 +195,17 @@ func readLoop(wsConn *websocket.Conn) {
 			if err != nil {
 				log.Printf("Error unmarshaling player count. Error: %s", err.Error())
 			}
-			log.Printf("Player count is: %d", playerCount)
+			fmt.Println(fmt.Sprintf("Player count is: %d", playerCount))
 		case "config":
-			log.Println("Got config message, ToDO: react based on config that was passed.")
+			fmt.Println("Got config message, ToDO: react based on config that was passed.")
 		case "answer":
-			fmt.Println("Got an answer: ToDO: parse and set remote description on peer connection")
-			var sdp string
-			err = json.Unmarshal(objmap["sdp"], &sdp)
-			if err != nil {
-				log.Printf("Error unmarshaling sdp from answer. Error: %s", err.Error())
-			}
-
-			// https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L90
+			handleRemoteAnswer(message, peerConnection)
 		case "iceCandidate":
-			fmt.Println("Got ice candidate: ToDO: parse and set ice candidate")
-			// see: https://github.com/pion/webrtc/blob/687d915e05a69441beae1bba0802e28756eecbbc/examples/pion-to-pion/offer/main.go#L82
+			candidateMsg := objmap["candidate"]
+			handleRemoteIceCandidate(candidateMsg, peerConnection)
 		default:
-			fmt.Println("Got message we do not specifically handle, type was: " + pixelStreamingMessageType)
+			log.Println("Got message we do not specifically handle, type was: " + pixelStreamingMessageType)
 		}
-
-		//ice.UnmarshalCandidate()
-		//convert message to JSON, if possible
-		//ice.UnmarshalCandidate
-		//webrtc.ICECandidate
 
 	}
 }
@@ -203,7 +219,6 @@ func main() {
 		return
 	}
 
-	//close websocket on exit
 	defer wsConn.Close()
 
 	peerConnection, err := createPeerConnection()
@@ -211,16 +226,15 @@ func main() {
 		panic(err)
 	}
 
-	// Create the "offer" string that we will send over websocket to the signalling server
+	// Create the "offer" string that we will send over websocket to the Cirrus signalling server
 	offerString, err := createOffer(peerConnection)
 
-	// Write a message over websocket
-	// Will look something like this:
-	//"{"type":"offer","sdp":"v=0\r\no=- 2927396662845926191 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1 2\r\na=msid-semantic: WMS\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111 103 104 9 0 8 106 105 13 110 112 113 126\r\nc=IN IP4 0.0.0.0\r\na=rtcp:9 IN IP4 0.0.0.0\r\na=ice-ufrag:AAzT\r\na=ice-pwd:CwVMkLDd5lKoYUQL6z+b3jMF\r\na=ice-options:trickle\r\na=fingerprint:sha-256 F8:5B:E7:22:D9:91:2C:D5:FA:64:A6:6D:69:55:58:0A:EF:6D:0B:98:58:7A:A6:14:8D:31:68:94:CF:86:AF:E4\r\na=setup:actpass\r\na=mid:0\r\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\r\na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\r\na=extmap:5 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\na=extmap:6 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id\r\na=recvonly\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=rtcp-fb:111 transport-cc\r\na=fmtp:111 minptime=10;useinbandfec=1\r\na=rtpmap:103 ISAC/16000\r\na=rtpmap:104 ISAC/32000\r\na=rtpmap:9 G722/8000\r\na=rtpmap:0 PCMU/8000\r\na=rtpmap:8 PCMA/8000\r\na=rtpmap:106 CN/32000\r\na=rtpmap:105 CN/16000\r\na=rtpmap:13 CN/8000\r\na=rtpmap:110 telephone-event/48000\r\na=rtpmap:112 telephone-event/32000\r\na=rtpmap:113 telephone-event/16000\r\na=rtpmap:126 telephone-event/8000\r\nm=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99 100 101 122 102 121 127 120 125 107 108 109 124 119 123 118 114 115 116\r\nc=IN IP4 0.0.0.0\r\na=rtcp:9 IN IP4 0.0.0.0\r\na=ice-ufrag:AAzT\r\na=ice-pwd:CwVMkLDd5lKoYUQL6z+b3jMF\r\na=ice-options:trickle\r\na=fingerprint:sha-256 F8:5B:E7:22:D9:91:2C:D5:FA:64:A6:6D:69:55:58:0A:EF:6D:0B:98:58:7A:A6:14:8D:31:68:94:CF:86:AF:E4\r\na=setup:actpass\r\na=mid:1\r\na=extmap:14 urn:ietf:params:rtp-hdrext:toffset\r\na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\r\na=extmap:13 urn:3gpp:video-orientation\r\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\r\na=extmap:12 http://www.webrtc.org/experiments/rtp-hdrext/playout-delay\r\na=extmap:11 http://www.webrtc.org/experiments/rtp-hdrext/video-content-type\r\na=extmap:7 http://www.webrtc.org/experiments/rtp-hdrext/video-timing\r\na=extmap:8 http://www.webrtc.org/experiments/rtp-hdrext/color-space\r\na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\r\na=extmap:5 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id\r\na=extmap:6 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id\r\na=recvonly\r\na=rtcp-mux\r\na=rtcp-rsize\r\na=rtpmap:96 VP8/90000\r\na=rtcp-fb:96 goog-remb\r\na=rtcp-fb:96 transport-cc\r\na=rtcp-fb:96 ccm fir\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtpmap:97 rtx/90000\r\na=fmtp:97 apt=96\r\na=rtpmap:98 VP9/90000\r\na=rtcp-fb:98 goog-remb\r\na=rtcp-fb:98 transport-cc\r\na=rtcp-fb:98 ccm fir\r\na=rtcp-fb:98 nack\r\na=rtcp-fb:98 nack pli\r\na=fmtp:98 profile-id=0\r\na=rtpmap:99 rtx/90000\r\na=fmtp:99 apt=98\r\na=rtpmap:100 VP9/90000\r\na=rtcp-fb:100 goog-remb\r\na=rtcp-fb:100 transport-cc\r\na=rtcp-fb:100 ccm fir\r\na=rtcp-fb:100 nack\r\na=rtcp-fb:100 nack pli\r\na=fmtp:100 profile-id=2\r\na=rtpmap:101 rtx/90000\r\na=fmtp:101 apt=100\r\na=rtpmap:122 VP9/90000\r\na=rtcp-fb:122 goog-remb\r\na=rtcp-fb:122 transport-cc\r\na=rtcp-fb:122 ccm fir\r\na=rtcp-fb:122 nack\r\na=rtcp-fb:122 nack pli\r\na=fmtp:122 profile-id=1\r\na=rtpmap:102 H264/90000\r\na=rtcp-fb:102 goog-remb\r\na=rtcp-fb:102 transport-cc\r\na=rtcp-fb:102 ccm fir\r\na=rtcp-fb:102 nack\r\na=rtcp-fb:102 nack pli\r\na=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f;x-google-start-bitrate=10000;x-google-max-bitrate=20000\r\na=rtpmap:121 rtx/90000\r\na=fmtp:121 apt=102\r\na=rtpmap:127 H264/90000\r\na=rtcp-fb:127 goog-remb\r\na=rtcp-fb:127 transport-cc\r\na=rtcp-fb:127 ccm fir\r\na=rtcp-fb:127 nack\r\na=rtcp-fb:127 nack pli\r\na=fmtp:127 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42001f;x-google-start-bitrate=10000;x-google-max-bitrate=20000\r\na=rtpmap:120 rtx/90000\r\na=fmtp:120 apt=127\r\na=rtpmap:125 H264/90000\r\na=rtcp-fb:125 goog-remb\r\na=rtcp-fb:125 transport-cc\r\na=rtcp-fb:125 ccm fir\r\na=rtcp-fb:125 nack\r\na=rtcp-fb:125 nack pli\r\na=fmtp:125 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=10000;x-google-max-bitrate=20000\r\na=rtpmap:107 rtx/90000\r\na=fmtp:107 apt=125\r\na=rtpmap:108 H264/90000\r\na=rtcp-fb:108 goog-remb\r\na=rtcp-fb:108 transport-cc\r\na=rtcp-fb:108 ccm fir\r\na=rtcp-fb:108 nack\r\na=rtcp-fb:108 nack pli\r\na=fmtp:108 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f;x-google-start-bitrate=10000;x-google-max-bitrate=20000\r\na=rtpmap:109 rtx/90000\r\na=fmtp:109 apt=108\r\na=rtpmap:124 H264/90000\r\na=rtcp-fb:124 goog-remb\r\na=rtcp-fb:124 transport-cc\r\na=rtcp-fb:124 ccm fir\r\na=rtcp-fb:124 nack\r\na=rtcp-fb:124 nack pli\r\na=fmtp:124 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f;x-google-start-bitrate=10000;x-google-max-bitrate=20000\r\na=rtpmap:119 rtx/90000\r\na=fmtp:119 apt=124\r\na=rtpmap:123 H264/90000\r\na=rtcp-fb:123 goog-remb\r\na=rtcp-fb:123 transport-cc\r\na=rtcp-fb:123 ccm fir\r\na=rtcp-fb:123 nack\r\na=rtcp-fb:123 nack pli\r\na=fmtp:123 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f;x-google-start-bitrate=10000;x-google-max-bitrate=20000\r\na=rtpmap:118 rtx/90000\r\na=fmtp:118 apt=123\r\na=rtpmap:114 red/90000\r\na=rtpmap:115 rtx/90000\r\na=fmtp:115 apt=114\r\na=rtpmap:116 ulpfec/90000\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=ice-ufrag:AAzT\r\na=ice-pwd:CwVMkLDd5lKoYUQL6z+b3jMF\r\na=ice-options:trickle\r\na=fingerprint:sha-256 F8:5B:E7:22:D9:91:2C:D5:FA:64:A6:6D:69:55:58:0A:EF:6D:0B:98:58:7A:A6:14:8D:31:68:94:CF:86:AF:E4\r\na=setup:actpass\r\na=mid:2\r\na=sctp-port:5000\r\na=max-message-size:262144\r\n"}"
+	// Write our offer over websocket: "{"type":"offer","sdp":"v=0\r\no=- 2927396662845926191 2 IN IP4 127.0.0.1....."
 	writeWSMessage(wsConn, offerString)
-	log.Println("Sent offer!")
+	fmt.Println("Sending offer...")
+	fmt.Println(offerString)
 
-	readLoop(wsConn)
+	startControlLoop(wsConn, peerConnection)
 
 	// // Prepare the configuration
 	// config := webrtc.Configuration{
