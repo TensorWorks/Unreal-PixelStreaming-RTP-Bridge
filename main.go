@@ -29,6 +29,11 @@ type udpConn struct {
 	payloadType uint8
 }
 
+type ueICECandidateResp struct {
+	Type      string                  `json:"type"`
+	Candidate webrtc.ICECandidateInit `json:"candidate"`
+}
+
 // Allows compressing offer/answer to bypass terminal input limits.
 const compress = false
 
@@ -130,7 +135,7 @@ func handleRemoteAnswer(message []byte, peerConnection *webrtc.PeerConnection) {
 	}
 
 	//ToDo: signal remote ice candidates
-	println("ToDo: We need to signal remote ice candidates")
+	println("ToDo: We need to signal remote ice candidates after we send our answer")
 }
 
 // Pion has received an ice candidate from the remote Unreal Engine Pixel Streaming (through Cirrus).
@@ -210,6 +215,38 @@ func startControlLoop(wsConn *websocket.Conn, peerConnection *webrtc.PeerConnect
 	}
 }
 
+// Send an "offer" string over websocket to Unreal Engine to start the WebRTC handshake
+func sendOffer(wsConn *websocket.Conn, peerConnection *webrtc.PeerConnection) {
+
+	offerString, err := createOffer(peerConnection)
+
+	if err != nil {
+		log.Printf("Error creating offer. Error: %s", err.Error())
+	} else {
+		// Write our offer over websocket: "{"type":"offer","sdp":"v=0\r\no=- 2927396662845926191 2 IN IP4 127.0.0.1....."
+		writeWSMessage(wsConn, offerString)
+		fmt.Println("Sending offer...")
+		fmt.Println(offerString)
+	}
+}
+
+// Send our local ICE candidate to Unreal Engine using websockets.
+func sendLocalIceCandidate(wsConn *websocket.Conn, localIceCandidate *webrtc.ICECandidate) {
+	var iceCandidateInit webrtc.ICECandidateInit = localIceCandidate.ToJSON()
+	var respPayload ueICECandidateResp = ueICECandidateResp{Type: "iceCandidate", Candidate: iceCandidateInit}
+
+	jsonPayload, err := json.Marshal(respPayload)
+
+	if err != nil {
+		log.Printf("Error turning local ice candidate into JSON. Error: %s", err.Error())
+	}
+
+	jsonStr := string(jsonPayload)
+	writeWSMessage(wsConn, jsonStr)
+	fmt.Println("Sending our local ice candidate to UE...")
+	fmt.Println(jsonStr)
+}
+
 func main() {
 
 	serverURL := url.URL{Scheme: "ws", Host: "localhost:80", Path: "/"}
@@ -226,14 +263,28 @@ func main() {
 		panic(err)
 	}
 
-	// Create the "offer" string that we will send over websocket to the Cirrus signalling server
-	offerString, err := createOffer(peerConnection)
+	// Store our local ice candidates that we will transmit to UE
+	//var candidatesMux sync.Mutex
+	pendingCandidates := make([]*webrtc.ICECandidate, 0)
 
-	// Write our offer over websocket: "{"type":"offer","sdp":"v=0\r\no=- 2927396662845926191 2 IN IP4 127.0.0.1....."
-	writeWSMessage(wsConn, offerString)
-	fmt.Println("Sending offer...")
-	fmt.Println(offerString)
+	// Setup a callback to capture our local ice candidates when they are ready
+	peerConnection.OnICECandidate(func(localIceCandidate *webrtc.ICECandidate) {
+		if localIceCandidate == nil {
+			return
+		}
 
+		//candidatesMux.Lock()
+		//defer candidatesMux.Unlock()
+
+		desc := peerConnection.RemoteDescription()
+		if desc == nil {
+			pendingCandidates = append(pendingCandidates, localIceCandidate)
+		} else {
+			sendLocalIceCandidate(wsConn, localIceCandidate)
+		}
+	})
+
+	sendOffer(wsConn, peerConnection)
 	startControlLoop(wsConn, peerConnection)
 
 	// // Prepare the configuration
