@@ -1,0 +1,1 @@
+ffplay -fflags nobuffer -flags low_delay -i rtp-forwarder.sdp -protocol_whitelist file,udp,rtp
