@@ -2,9 +2,9 @@
 
 This is a proof of concept demonstrating pixel streaming from Unreal Engine to Pion's WebRTC, with Pion then forwarding RTP video/audio to FFPlay.
 
-## How to run it
+## Running the proof of concept
 
-There are number of moving pieces to run this demo. We tested this proof of concept using FFPlay 4.3.1, NodeJS 15.5.1, GoLang 1.15.6, and Unreal Engine 4.25 - we recommend using similar version numbers to reproduce our results.
+There are number of moving pieces to run this demo. We tested this proof of concept using **FFPlay 4.3.1**, **NodeJS 15.5.1**, **GoLang 1.15.6**, and **Unreal Engine 4.25** - we recommend using similar version numbers to reproduce our results.
 
 1. Get the ["Pixel Streaming Demo"](https://docs.unrealengine.com/en-US/Resources/Showcases/PixelStreamingShowcase/index.html) and run that in Unreal Engine.
 2. Run the Cirrus signalling server bundled with Unreal Engine by calling `run.bat` or `sudo node cirrus.js` in `Engine/Source/Programs/PixelStreaming/WebServers/SignallingAndWebServer/`.
