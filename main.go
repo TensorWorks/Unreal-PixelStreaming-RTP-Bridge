@@ -1,5 +1,8 @@
-// Heavily based on https://github.com/pion/webrtc/tree/master/examples/rtp-forwarder
-// It has been modified to talk to Unreal Engine pixel streaming by sending an SDP offer.
+// This program forwards WebRTC streams from Unreal Engine pixel streaming over RTP to some arbitrary receiever.
+// This program uses websockets to connect to Unreal Engine pixel streaming through the intermediate signalling server ("cirrus").
+// This program then uses Pion WebRTC to receive video/audio from Unreal Engine and the forwards those RTP streams
+// to a specified address and ports. This is a proof of concept that is designed so FFPlay can receive these RTP streams.
+// This program is a heavily modified version of: https://github.com/pion/webrtc/tree/master/examples/rtp-forwarder
 
 package main
 
