@@ -66,10 +66,12 @@ func createOffer(peerConnection *webrtc.PeerConnection) (string, error) {
 	offer, err := peerConnection.CreateOffer(nil)
 	if err != nil {
 		log.Println("Error creating peer connection offer: ", err)
+		return "", err
 	}
 
 	if err = peerConnection.SetLocalDescription(offer); err != nil {
 		log.Println("Error setting local description of peer connection: ", err)
+		return "", err
 	}
 
 	offerStringBytes, err := json.Marshal(offer)
