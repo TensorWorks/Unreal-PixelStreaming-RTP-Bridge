@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/url"
 	"time"
+	"flag"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
@@ -21,25 +22,25 @@ import (
 )
 
 // CirrusPort - The port of the Cirrus signalling server that the Pixel Streaming instance is connected to.
-const CirrusPort int = 80
+var CirrusPort = flag.Int("CirrusPort", 80, "The port of the Cirrus signalling server that the Pixel Streaming instance is connected to.")
 
 // CirrusAddress - The address of the Cirrus signalling server that the Pixel Streaming instance is connected to.
-const CirrusAddress string = "localhost"
+var CirrusAddress = flag.String("CirrusAddress", "localhost", "The address of the Cirrus signalling server that the Pixel Streaming instance is connected to.")
 
 // ForwardingAddress - The address to send the RTP stream to.
-const ForwardingAddress string = "127.0.0.1"
+var ForwardingAddress = flag.String("ForwardingAddress", "127.0.0.1", "The address to send the RTP stream to.")
 
 // RTPVideoForwardingPort - The port to use for sending the RTP video stream.
-const RTPVideoForwardingPort int = 4002
+var RTPVideoForwardingPort = flag.Int("RTPVideoForwardingPort", 4002, "The port to use for sending the RTP video stream.")
 
 // RTPAudioForwardingPort - The port to use for sending the RTP audio stream.
-const RTPAudioForwardingPort int = 4000
+var RTPAudioForwardingPort = flag.Int("RTPAudioForwardingPort", 4000, "The port to use for sending the RTP audio stream.")
 
 // RTPAudioPayloadType - The payload type of the RTP packet, 111 is OPUS.
-const RTPAudioPayloadType webrtc.PayloadType = 111
+var RTPAudioPayloadType = flag.Uint("RTPAudioPayloadType", 111, "The payload type of the RTP packet, 111 is OPUS.")
 
 // RTPVideoPayloadType - The payload type of the RTP packet, 102 is H264.
-const RTPVideoPayloadType webrtc.PayloadType = 102
+var RTPVideoPayloadType = flag.Uint("RTPVideoPayloadType", 102, "The payload type of the RTP packet, 102 is H264.")
 
 type udpConn struct {
 	conn        *net.UDPConn
@@ -91,13 +92,13 @@ func createPeerConnection() (*webrtc.PeerConnection, error) {
 	// // We'll use a H264 and Opus but you can also define your own
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "video/h264", ClockRate: 90000, Channels: 0, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=10000;x-google-max-bitrate=20000", RTCPFeedback: nil},
-		PayloadType:        RTPVideoPayloadType,
+		PayloadType:        webrtc.PayloadType(*RTPVideoPayloadType),
 	}, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, err
 	}
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "audio/opus", ClockRate: 48000, Channels: 2, SDPFmtpLine: "111 minptime=10;useinbandfec=1", RTCPFeedback: nil},
-		PayloadType:        RTPAudioPayloadType,
+		PayloadType:        webrtc.PayloadType(*RTPAudioPayloadType),
 	}, webrtc.RTPCodecTypeAudio); err != nil {
 		return nil, err
 	}
@@ -303,13 +304,13 @@ func setupMediaForwarding(peerConnection *webrtc.PeerConnection) (*udpConn, *udp
 	// Prepare udp conns
 	// Also update incoming packets with expected PayloadType, the browser may use
 	// a different value. We have to modify so our stream matches what rtp-forwarder.sdp expects
-	videoUDPConn, err := createUDPConnection(ForwardingAddress, RTPVideoForwardingPort, uint8(RTPVideoPayloadType))
+	videoUDPConn, err := createUDPConnection(*ForwardingAddress, *RTPVideoForwardingPort, uint8(*RTPVideoPayloadType))
 
 	if err != nil {
 		log.Println(fmt.Sprintf("Error creating udp connection for video: " + err.Error()))
 	}
 
-	audioUDPConn, err := createUDPConnection(ForwardingAddress, RTPAudioForwardingPort, uint8(RTPAudioPayloadType))
+	audioUDPConn, err := createUDPConnection(*ForwardingAddress, *RTPAudioForwardingPort, uint8(*RTPAudioPayloadType))
 
 	if err != nil {
 		log.Println(fmt.Sprintf("Error creating udp connection for audio: " + err.Error()))
@@ -381,9 +382,10 @@ func setupMediaForwarding(peerConnection *webrtc.PeerConnection) (*udpConn, *udp
 }
 
 func main() {
+	flag.Parse()
 
 	// Setup a websocket connection between this application and the Cirrus webserver.
-	serverURL := url.URL{Scheme: "ws", Host: fmt.Sprintf("%s:%d", CirrusAddress, CirrusPort), Path: "/"}
+	serverURL := url.URL{Scheme: "ws", Host: fmt.Sprintf("%s:%d", *CirrusAddress, *CirrusPort), Path: "/"}
 	wsConn, _, err := websocket.DefaultDialer.Dial(serverURL.String(), nil)
 	if err != nil {
 		log.Fatal("Websocket dialing error: ", err)
