@@ -280,7 +280,7 @@ func createUDPConnection(address string, port int, payloadType uint8) (*udpConn,
 	// Create a local addr
 	var laddr *net.UDPAddr
 	var resolveLocalErr error
-	if laddr, resolveLocalErr = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:", address)); resolveLocalErr != nil {
+	if laddr, resolveLocalErr = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:", "0.0.0.0")); resolveLocalErr != nil {
 		return nil, resolveLocalErr
 	}
 
