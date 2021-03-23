@@ -277,13 +277,6 @@ func createUDPConnection(address string, port int, payloadType uint8) (*udpConn,
 
 	var udpConnection udpConn = udpConn{port: port, payloadType: payloadType}
 
-	// Create a local addr
-	var laddr *net.UDPAddr
-	var resolveLocalErr error
-	if laddr, resolveLocalErr = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:", address)); resolveLocalErr != nil {
-		return nil, resolveLocalErr
-	}
-
 	// Create remote addr
 	var raddr *net.UDPAddr
 	var resolveRemoteErr error
@@ -293,7 +286,7 @@ func createUDPConnection(address string, port int, payloadType uint8) (*udpConn,
 
 	// Dial udp
 	var udpConnErr error
-	if udpConnection.conn, udpConnErr = net.DialUDP("udp", laddr, raddr); udpConnErr != nil {
+	if udpConnection.conn, udpConnErr = net.DialUDP("udp", nil, raddr); udpConnErr != nil {
 		return nil, udpConnErr
 	}
 	return &udpConnection, nil
