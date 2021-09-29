@@ -7,7 +7,7 @@ This is a proof of concept demonstrating pixel streaming from Unreal Engine to P
 There are number of moving pieces to run this demo. We tested this proof of concept using **FFPlay 4.3.1**, **NodeJS 15.5.1**, **GoLang 1.15.6**, and **Unreal Engine 4.25** - we recommend using similar version numbers to reproduce our results.
 
 1. Get the ["Pixel Streaming Demo"](https://docs.unrealengine.com/en-US/Resources/Showcases/PixelStreamingShowcase/index.html) and run that in Unreal Engine.
-2. Run the Cirrus signalling server bundled with Unreal Engine by calling `run.bat` or `sudo node cirrus.js` in `Engine/Source/Programs/PixelStreaming/WebServers/SignallingAndWebServer/`.
+2. Run the Cirrus signalling server bundled with Unreal Engine by calling `run.bat` or `sudo node cirrus.js` in `Samples\PixelStreaming\WebServers\SignallingWebServer`.
 3. Run this RTP forwarder, `go run main.go` in this repository. 
 4. Play the forwarded video/audio streams in FFPlay, run `play-stream.bat` or `play-stream.sh`
 
@@ -38,5 +38,6 @@ There are a number of flags that can be passed to `main.go` that may be of inter
 ```
 
 ## Configuring FFPlay
+You may need to download FFPlay if it is not on your system already: https://ffmpeg.org/ffplay.html
 Currently FFPlay is passed details about the RTP streams using the `rtp-forwarder.sdp` file.
 Additionally, FFPlay is passed the `-fflags nobuffer -flags low_delay` flags to reduce latency; however, these may not be suitable in all cases.
