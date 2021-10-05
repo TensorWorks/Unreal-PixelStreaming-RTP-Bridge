@@ -39,8 +39,8 @@ var RTPAudioForwardingPort = flag.Int("RTPAudioForwardingPort", 4000, "The port 
 // RTPAudioPayloadType - The payload type of the RTP packet, 111 is OPUS.
 var RTPAudioPayloadType = flag.Uint("RTPAudioPayloadType", 111, "The payload type of the RTP packet, 111 is OPUS.")
 
-// RTPVideoPayloadType - The payload type of the RTP packet, 102 is H264.
-var RTPVideoPayloadType = flag.Uint("RTPVideoPayloadType", 102, "The payload type of the RTP packet, 102 is H264.")
+// RTPVideoPayloadType - The payload type of the RTP packet, 125 is H264 constrained baseline 2.0 in Chrome, with packetization mode of 1.
+var RTPVideoPayloadType = flag.Uint("RTPVideoPayloadType", 125, "The payload type of the RTP packet, 125 is H264 constrained baseline in Chrome.")
 
 type udpConn struct {
 	conn        *net.UDPConn
@@ -91,7 +91,7 @@ func createPeerConnection() (*webrtc.PeerConnection, error) {
 	// // Setup the codecs you want to use.
 	// // We'll use a H264 and Opus but you can also define your own
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "video/h264", ClockRate: 90000, Channels: 0, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=10000;x-google-max-bitrate=20000", RTCPFeedback: nil},
+		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "video/h264", ClockRate: 90000, Channels: 0, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", RTCPFeedback: nil},
 		PayloadType:        webrtc.PayloadType(*RTPVideoPayloadType),
 	}, webrtc.RTPCodecTypeVideo); err != nil {
 		return nil, err

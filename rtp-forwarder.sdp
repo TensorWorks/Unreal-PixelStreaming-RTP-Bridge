@@ -5,5 +5,5 @@ c=IN IP4 127.0.0.1
 t=0 0
 m=audio 4000 RTP/AVP 111
 a=rtpmap:111 OPUS/48000/2
-m=video 4002 RTP/AVP 102
-a=rtpmap:102 H264/90000
+m=video 4002 RTP/AVP 125
+a=rtpmap:125 H264/90000
