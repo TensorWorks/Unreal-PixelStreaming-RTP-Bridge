@@ -8,12 +8,12 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/url"
 	"time"
-	"flag"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
@@ -41,6 +41,18 @@ var RTPAudioPayloadType = flag.Uint("RTPAudioPayloadType", 111, "The payload typ
 
 // RTPVideoPayloadType - The payload type of the RTP packet, 125 is H264 constrained baseline 2.0 in Chrome, with packetization mode of 1.
 var RTPVideoPayloadType = flag.Uint("RTPVideoPayloadType", 125, "The payload type of the RTP packet, 125 is H264 constrained baseline in Chrome.")
+
+// RTCPIntervalMs - How often (ms) to send RTCP messages (such as REMB, PLI)
+var RTCPIntervalMs = flag.Int("RTCPIntervalMs", 2000, "How often (ms) to send RTCP message such as REMB, PLI.")
+
+//Whether or not to send PLI messages on an interval.
+var RTCPSendPLI = flag.Bool("RTCPSendPLI", true, "Whether or not to send PLI messages on an interval.")
+
+//Whether or not to send REMB messages on an interval.
+var RTCPSendREMB = flag.Bool("RTCPSendREMB", true, "Whether or not to send REMB messages on an interval.")
+
+// Receiver-side estimated maximum bitrate.
+var REMB = flag.Uint64("REMB", 400000000, "Receiver-side estimated maximum bitrate.")
 
 type udpConn struct {
 	conn        *net.UDPConn
@@ -88,20 +100,8 @@ func createPeerConnection() (*webrtc.PeerConnection, error) {
 	// Create a MediaEngine object to configure the supported codec
 	m := webrtc.MediaEngine{}
 
-	// // Setup the codecs you want to use.
-	// // We'll use a H264 and Opus but you can also define your own
-	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "video/h264", ClockRate: 90000, Channels: 0, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", RTCPFeedback: nil},
-		PayloadType:        webrtc.PayloadType(*RTPVideoPayloadType),
-	}, webrtc.RTPCodecTypeVideo); err != nil {
-		return nil, err
-	}
-	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "audio/opus", ClockRate: 48000, Channels: 2, SDPFmtpLine: "111 minptime=10;useinbandfec=1", RTCPFeedback: nil},
-		PayloadType:        webrtc.PayloadType(*RTPAudioPayloadType),
-	}, webrtc.RTPCodecTypeAudio); err != nil {
-		return nil, err
-	}
+	// This sets up H.264, OPUS, etc.
+	m.RegisterDefaultCodecs()
 
 	// Create the API object with the MediaEngine
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(&m))
@@ -324,12 +324,23 @@ func setupMediaForwarding(peerConnection *webrtc.PeerConnection) (*udpConn, *udp
 			log.Println(fmt.Sprintf("Unsupported track type from Unreal Engine, track type: %s", trackType))
 		}
 
-		// Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
+		// Send RTCP message on an interval to the UE side. a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
 		go func() {
-			ticker := time.NewTicker(time.Second * 2)
+			ticker := time.NewTicker(time.Millisecond * 2000)
 			for range ticker.C {
-				if rtcpErr := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(track.SSRC())}}); rtcpErr != nil {
-					fmt.Println(rtcpErr)
+
+				// Send PLI (picture loss indicator)
+				if *RTCPSendPLI {
+					if rtcpErr := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(track.SSRC())}}); rtcpErr != nil {
+						fmt.Println(rtcpErr)
+					}
+				}
+
+				// Send REMB (receiver-side estimated maximum bandwidth)
+				if *RTCPSendREMB {
+					if rtcpErr := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.ReceiverEstimatedMaximumBitrate{Bitrate: *REMB, SSRCs: []uint32{uint32(track.SSRC())}}}); rtcpErr != nil {
+						fmt.Println(rtcpErr)
+					}
 				}
 			}
 		}()
