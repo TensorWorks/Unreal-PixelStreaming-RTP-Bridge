@@ -16,25 +16,37 @@ There are a number of flags that can be passed to `main.go` that may be of inter
 
 ```go
 // CirrusPort - The port of the Cirrus signalling server that the Pixel Streaming instance is connected to.
---CirrusPort=80
+var CirrusPort = flag.Int("CirrusPort", 80, "The port of the Cirrus signalling server that the Pixel Streaming instance is connected to.")
 
 // CirrusAddress - The address of the Cirrus signalling server that the Pixel Streaming instance is connected to.
---CirrusAddress="localhost"
+var CirrusAddress = flag.String("CirrusAddress", "localhost", "The address of the Cirrus signalling server that the Pixel Streaming instance is connected to.")
 
 // ForwardingAddress - The address to send the RTP stream to.
---ForwardingAddress="127.0.0.1"
+var ForwardingAddress = flag.String("ForwardingAddress", "127.0.0.1", "The address to send the RTP stream to.")
 
 // RTPVideoForwardingPort - The port to use for sending the RTP video stream.
---RTPVideoForwardingPort=4002
+var RTPVideoForwardingPort = flag.Int("RTPVideoForwardingPort", 4002, "The port to use for sending the RTP video stream.")
 
 // RTPAudioForwardingPort - The port to use for sending the RTP audio stream.
---RTPAudioForwardingPort=4000
+var RTPAudioForwardingPort = flag.Int("RTPAudioForwardingPort", 4000, "The port to use for sending the RTP audio stream.")
 
 // RTPAudioPayloadType - The payload type of the RTP packet, 111 is OPUS.
---RTPAudioPayloadType=111
+var RTPAudioPayloadType = flag.Uint("RTPAudioPayloadType", 111, "The payload type of the RTP packet, 111 is OPUS.")
 
-// RTPVideoPayloadType - The payload type of the RTP packet, 102 is H264.
---RTPVideoPayloadType=102
+// RTPVideoPayloadType - The payload type of the RTP packet, 125 is H264 constrained baseline 2.0 in Chrome, with packetization mode of 1.
+var RTPVideoPayloadType = flag.Uint("RTPVideoPayloadType", 125, "The payload type of the RTP packet, 125 is H264 constrained baseline in Chrome.")
+
+// RTCPIntervalMs - How often (ms) to send RTCP messages (such as REMB, PLI)
+var RTCPIntervalMs = flag.Int("RTCPIntervalMs", 2000, "How often (ms) to send RTCP message such as REMB, PLI.")
+
+//Whether or not to send PLI messages on an interval.
+var RTCPSendPLI = flag.Bool("RTCPSendPLI", true, "Whether or not to send PLI messages on an interval.")
+
+//Whether or not to send REMB messages on an interval.
+var RTCPSendREMB = flag.Bool("RTCPSendREMB", true, "Whether or not to send REMB messages on an interval.")
+
+// Receiver-side estimated maximum bitrate.
+var REMB = flag.Uint64("REMB", 400000000, "Receiver-side estimated maximum bitrate.")
 ```
 
 ## Configuring FFPlay
